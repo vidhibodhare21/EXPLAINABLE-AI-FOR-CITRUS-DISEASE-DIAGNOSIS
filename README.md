@@ -41,3 +41,4 @@ The browser sends the selected image only to the API on this computer. The API a
 - Add Vidhi Bodhare's and Shubh Kamle's PRN numbers in the member cards in `index.html`.
 - Replace the initials portrait placeholders in the member cards with the project members' photographs.
 # EXPLAINABLE-AI-FOR-CITRUS-DISEASE-DIAGNOSIS
+# EXPLAINABLE-AI-FOR-CITRUS-DISEASE-DIAGNOSIS
