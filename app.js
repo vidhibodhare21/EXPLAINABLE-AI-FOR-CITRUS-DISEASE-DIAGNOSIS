@@ -17,7 +17,7 @@ const translations = {
     mandarinCitrus: "Mandarin / tangerine", grapefruitCitrus: "Grapefruit", otherCitrus: "Other citrus fruit",
     fruitModelScope: "Orange is a citrus fruit. Select the species yourself: the model does not verify fruit type and was trained only on sweet oranges; other citrus types are unsupported.",
     chooseFruitFirst: "Select the citrus fruit type first.", unsupportedFruit: "The fruit model only supports oranges (Citrus sinensis). This photo was not analyzed.",
-    leafModelReady: "Citrus leaf classifier is ready.", fruitModelReady: "Orange-fruit classifier is ready.", checkingModel: "Checking the local AI models…",
+    leafModelReady: "Leaf model available; it loads when needed.", fruitModelReady: "Fruit model available; it loads when needed.", checkingModel: "Checking the diagnosis service…",
     modelUnavailable: "Local AI model is offline. Start the diagnosis API using the README instructions.",
     uploadLabel: "ADD A PHOTO", diagnosePhoto: "Diagnose this photo", dropPhoto: "Drop your photo here", orBrowse: "or browse files from your device", chooseImage: "Choose an image",
     fileHint: "JPG, PNG or WEBP · max 10 MB", photoReady: "PHOTO READY", or: "OR", useCamera: "Take a photo with your camera",
@@ -69,7 +69,7 @@ const translations = {
     grapefruitCitrus: "ग्रेपफ्रूट", otherCitrus: "अन्य खट्टा फल",
     fruitModelScope: "संतरा भी खट्टा फल (सिट्रस) है। फल का प्रकार आपको चुनना होगा: मॉडल फल की प्रजाति की पुष्टि नहीं करता और केवल मीठे संतरे पर प्रशिक्षित है; अन्य सिट्रस फल समर्थित नहीं हैं।",
     chooseFruitFirst: "पहले खट्टे फल का प्रकार चुनें।", unsupportedFruit: "फल मॉडल केवल संतरे (Citrus sinensis) के लिए है। इस फोटो का विश्लेषण नहीं किया गया।",
-    leafModelReady: "खट्टे फल की पत्ती का क्लासिफायर तैयार है।", fruitModelReady: "संतरे के फल का क्लासिफायर तैयार है।", checkingModel: "स्थानीय AI मॉडल जांच रहे हैं…",
+    leafModelReady: "पत्ती मॉडल उपलब्ध है; जरूरत पर लोड होगा।", fruitModelReady: "फल मॉडल उपलब्ध है; जरूरत पर लोड होगा।", checkingModel: "निदान सेवा जांच रहे हैं…",
     modelUnavailable: "स्थानीय AI मॉडल बंद है। README में दिए निर्देश से diagnosis API शुरू करें।",
     uploadLabel: "फोटो जोड़ें", diagnosePhoto: "इस फोटो की जांच करें", dropPhoto: "अपनी फोटो यहां छोड़ें", orBrowse: "या अपने डिवाइस से फाइल चुनें", chooseImage: "फोटो चुनें",
     fileHint: "JPG, PNG या WEBP · अधिकतम 10 MB", photoReady: "फोटो तैयार", or: "या", useCamera: "कैमरे से फोटो लें",
@@ -364,7 +364,7 @@ let currentImageUrl = null;
 let currentFile = null;
 let cameraStream = null;
 let toastTimer;
-let modelAvailability = { leaf: false, fruit: false };
+let apiAvailable = false;
 let currentPrediction = null;
 let currentReferenceDisease = null;
 let diagnosisRequest = 0;
@@ -482,7 +482,7 @@ function updatePhotoTarget() {
   document.querySelector("#fruitSpeciesRow").classList.toggle("hidden", !fruitSelected);
   document.querySelector("#targetNote").classList.toggle("hidden", !fruitSelected);
   const button = document.querySelector("#diagnoseButton");
-  button.disabled = !currentFile || !modelAvailability[photoType] || (fruitSelected && !supportedSpecies);
+  button.disabled = !currentFile || !apiAvailable || (fruitSelected && !supportedSpecies);
   updateModelConnection();
 }
 
@@ -490,7 +490,7 @@ function updateModelConnection() {
   const connection = document.querySelector("#modelConnection");
   const message = connection.querySelector("span:last-child");
   const photoType = document.querySelector("#photoType").value;
-  const modelAvailable = modelAvailability[photoType];
+  const modelAvailable = apiAvailable;
   const unsupportedFruit = photoType === "fruit" && document.querySelector("#fruitSpecies").value !== "orange";
   connection.classList.toggle("connected", modelAvailable && !unsupportedFruit);
   connection.classList.toggle("disconnected", !modelAvailable || unsupportedFruit);
@@ -507,16 +507,16 @@ function updateModelConnection() {
 
 async function checkModelConnection() {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 2500);
+  const timeout = setTimeout(() => controller.abort(), 15000);
   try {
     const response = await fetch(`${API_BASE_URL}/api/health`, { signal: controller.signal });
     const health = response.ok ? await response.json() : null;
-    modelAvailability = {
-      leaf: Boolean(health?.models?.leaf?.model_loaded),
-      fruit: Boolean(health?.models?.fruit?.model_loaded)
-    };
+    const apiReady = Boolean(
+      health?.models?.leaf?.available && health?.models?.fruit?.available
+    );
+    apiAvailable = apiReady;
   } catch {
-    modelAvailability = { leaf: false, fruit: false };
+    apiAvailable = false;
   } finally {
     clearTimeout(timeout);
     updatePhotoTarget();
@@ -524,7 +524,7 @@ async function checkModelConnection() {
     const status = document.querySelector("#diagnosisStatus");
     if (
       currentFile &&
-      modelAvailability[selectedType] &&
+      apiAvailable &&
       status.textContent === translations[currentLanguage].modelUnavailable
     ) {
       runDiagnosis();
@@ -553,7 +553,7 @@ async function runDiagnosis() {
     document.querySelector("#diagnosisStatus").className = "diagnosis-status error";
     return;
   }
-  if (!modelAvailability[photoType]) {
+  if (!apiAvailable) {
     document.querySelector("#diagnosisStatus").textContent = translations[currentLanguage].modelUnavailable;
     document.querySelector("#diagnosisStatus").className = "diagnosis-status error";
     return;
@@ -591,7 +591,7 @@ async function runDiagnosis() {
   } finally {
     if (requestId === diagnosisRequest) {
       const selectedType = document.querySelector("#photoType").value;
-      button.disabled = !modelAvailability[selectedType]
+      button.disabled = !apiAvailable
         || (selectedType === "fruit" && document.querySelector("#fruitSpecies").value !== "orange");
     }
   }
