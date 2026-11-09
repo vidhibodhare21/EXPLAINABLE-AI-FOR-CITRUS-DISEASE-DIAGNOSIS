@@ -10,3 +10,5 @@ venv/
 __pycache__/
 *.pyc
 .DS_Store
+CitrusCare_Dataset/
+dataset_manifest.csv
