@@ -1,0 +1,122 @@
+\documentclass[conference]{IEEEtran}
+
+\usepackage{cite}
+\usepackage{url}
+\usepackage{booktabs}
+\usepackage{array}
+
+\title{CitrusCare: An Explainable AI Prototype for Bilingual Citrus Disease Diagnosis}
+
+\author{
+\IEEEauthorblockN{Vidhi Bodhare \and Shubh Kamle}
+\IEEEauthorblockA{[Department], [Institution]\\
+[City, Country]\\
+[Corresponding author email]}
+}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Citrus diseases can reduce fruit quality and crop productivity, while image-classification outputs may be difficult to interpret without context. This paper presents CitrusCare, a bilingual English--Hindi prototype for image-based exploration of citrus health. The system uses separate pretrained classifiers for citrus leaves and sweet-orange fruit. A user selects the image type, submits a photograph, and receives up to three predicted classes with model scores. The interface supplements these outputs with educational disease information and communicates the scope and limitations of each classifier. Inference is performed by an API running locally on the user's computer. In this work, explainability refers to contextual presentation of predictions and limitations; the prototype does not produce saliency maps or other image-region explanations. The models were not trained by the project authors, and no independent project-specific test set has yet been evaluated. Accordingly, this paper documents the system design and proposes an evaluation protocol without asserting diagnostic performance. CitrusCare is intended for educational exploration and is not a substitute for expert or laboratory diagnosis.
+\end{abstract}
+
+\begin{IEEEkeywords}
+citrus disease, image classification, explainable artificial intelligence, agricultural decision support, bilingual interface
+\end{IEEEkeywords}
+
+\section{Introduction}
+Citrus diseases can affect fruit quality, crop productivity, and grower livelihoods. Symptoms visible on leaves and fruit can be difficult to interpret, and visually similar symptoms may have different causes. Image classification can help organize visual evidence, but an isolated predicted label may provide insufficient context for a user to understand the model's scope or limitations.
+
+This paper presents CitrusCare, a bilingual web prototype that combines image classification with contextual educational information. It is designed to make model outputs easier to explore while distinguishing a machine prediction from a confirmed diagnosis. The prototype provides separate workflows for citrus leaves and sweet-orange fruit, presents the leading class scores, and offers general disease guidance in English and Hindi.
+
+The contributions of this project are:
+\begin{itemize}
+  \item A web workflow that routes leaf and sweet-orange fruit images to separate pretrained classifiers.
+  \item A bilingual interface that presents model outputs together with their supported label scopes and limitations.
+  \item An explicit distinction between contextual, interface-level explainability and image-region or feature-attribution explanations.
+  \item A reproducible evaluation plan that can be used to assess the models and the usability of the interface in future work.
+\end{itemize}
+
+\section{Related Work and Data Context}
+Machine-learning approaches to citrus disease classification have been studied using datasets of citrus fruits and leaves. Rauf \emph{et al.} describe a citrus image dataset for disease detection and classification \cite{rauf2019}. The supplemental dataset present in this project contains 759 training images, with an explicit plant-part field. Its fruit subset is small and imbalanced, and the available split does not provide a separate validation set. The supplemental dataset is not used to train either classifier deployed by CitrusCare.
+
+CitrusCare uses two publicly available pretrained models: a ConvNeXt-Small citrus-leaf model \cite{ixrmodel} and a Vision Transformer orange-fruit model \cite{dima806model}. These models are integrated as external components; the project does not claim to have trained them. Their label sets, preprocessing pipelines, and supported image scopes are different, so their outputs are interpreted within their respective workflows.
+
+\section{System Design}
+\subsection{Architecture}
+CitrusCare consists of a browser-based interface and a local inference API. The user selects whether an image depicts a leaf or fruit and submits the image to the API running on the same computer. The API validates the request, routes it to the selected classifier, and returns the top predictions and scores. The interface then displays the result and relevant limitations.
+
+The current implementation accepts JPEG, PNG, and WEBP files up to 10~MB. Image orientation is corrected using EXIF metadata and images are converted to RGB before inference. The browser sends the image to the local API; the implementation does not require the image to be uploaded to a project-hosted inference service.
+
+\subsection{Leaf Classifier}
+The leaf workflow uses the \texttt{ixrbhii/citrus-disease-convnext} model, based on ConvNeXt-Small \cite{ixrmodel}. It returns scores for eight classes: Bacterial Blight, Black Spot, Canker, Dry Leaf, Healthy, Leaf Curl Virus, Sooty Mould, and Spider Mites.
+
+The API fits the image to 224~$\times$~224 pixels using a center crop and bilinear resampling. It converts pixel values to floating point, scales them to $[0,1]$, and normalizes channels with the ImageNet mean and standard deviation. Inference is performed with gradients disabled.
+
+\subsection{Fruit Classifier}
+The fruit workflow uses the \texttt{dima806/orange\_fruit\_disease\_detection} model, based on a Vision Transformer \cite{dima806model}. Its classes are citrus canker, healthy, and melanose. The current implementation supports sweet orange (\emph{Citrus sinensis}) only. The user selects the fruit type; the model does not verify species from the image. Requests for other selected citrus species are rejected rather than being presented as supported inferences.
+
+The fruit model's associated image processor prepares the image for inference. The model's preprocessing is separate from the leaf model's preprocessing, and the two classifiers are not combined into a single label space.
+
+\subsection{Prediction Presentation}
+For each request, the API applies softmax to the classifier logits and returns up to three highest-scoring classes. These values are referred to in the interface as model scores, not calibrated probabilities. The interface flags a result as uncertain when the highest score is below 0.45. This is a fixed interface threshold; it has not been validated as a statistically calibrated rejection threshold.
+
+\section{Contextual Explainability and Bilingual Interaction}
+In this prototype, explainability means presenting predictions with information about class scope, supported image types, known limitations, and general educational context. It does not mean that the system identifies the image regions responsible for a prediction.
+
+The disease guide describes visible symptoms and general management considerations. It is separate from the inference pipeline: guide text does not influence predictions, and the guide does not establish that a listed symptom is present in the submitted photograph. No saliency map, segmentation, counterfactual, or other image-grounded explanation is currently produced.
+
+The interface supports English and Hindi. Language switching changes the interface and educational content; it does not change model inference. Bilingual presentation is intended to improve accessibility, but its usability and comprehension benefits have not yet been measured in a user study.
+
+\section{Implementation}
+The browser interface is implemented using HTML, CSS, and JavaScript. The local API is implemented with FastAPI. The leaf model is loaded through the \texttt{timm} model library, while the fruit model and its image processor are loaded through the Transformers library. A health endpoint reports the loading status and model metadata, and a prediction endpoint accepts an image and the selected image type.
+
+Input validation covers image type, supported fruit selection, content type, file size, and image readability. Model loading and prediction errors are reported to the interface rather than represented as successful predictions. Users are advised to consult an agricultural extension officer or plant pathologist before making treatment decisions.
+
+\section{Evaluation Protocol}
+No independent, project-specific evaluation has been completed for this paper. Consequently, no accuracy or other performance result is claimed here. Reported performance in an external model card, if discussed in future revisions, must be identified as the publisher's result and not as an evaluation conducted by the project authors.
+
+A future evaluation should use a held-out dataset independent of the source models' training data. Images should be labeled or verified by qualified annotators, and near-duplicate images or images from the same acquisition source should not be split across training and test sets. The leaf and fruit workflows should be evaluated separately because their labels and supported inputs differ.
+
+For each workflow, report the number of images per class, collection conditions, confusion matrix, accuracy, macro-averaged precision, macro-averaged recall, and macro-averaged F1-score. Per-class metrics should be included to reveal minority-class failures. If scores are intended to convey probabilities, evaluate calibration using reliability diagrams and an appropriate calibration metric. Evaluation should include field-acquired photographs and document image quality, lighting, background, device, and cultivar where known.
+
+The English and Hindi interface should also be evaluated with user testing. A study could assess whether participants correctly interpret a model score, understand unsupported classes, distinguish reference guidance from image-derived evidence, and know when expert review is needed. Participant recruitment, consent, tasks, and analysis should be reported.
+
+\begin{table}[!t]
+\caption{Results template. Replace placeholders only after conducting the stated evaluation.}
+\label{tab:results}
+\centering
+\footnotesize
+\begin{tabular}{lrrrrr}
+\toprule
+Workflow & $N$ & Acc. & Macro P & Macro R & Macro F1\\
+\midrule
+Leaf & [--] & [--] & [--] & [--] & [--]\\
+Sweet-orange fruit & [--] & [--] & [--] & [--] & [--]\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Limitations}
+CitrusCare inherits limitations from its external pretrained models and their source datasets. Model performance has not been independently verified by this project, and real-world performance may differ from publisher-reported results. The fruit classifier supports only sweet orange and predicts three classes. It should not be assumed to work for lemons, limes, mandarins, grapefruit, or other citrus varieties.
+
+The returned softmax values are not calibrated probabilities. The uncertainty threshold is not empirically validated. Some model labels, including Dry Leaf, Healthy, Leaf Curl Virus, and Spider Mites, are pattern-class labels and should not be interpreted as laboratory-confirmed diagnoses. The disease guide is general educational information, not a personalized prescription. The interface does not provide image-region explanations, and the supplemental dataset is not used to retrain or evaluate the deployed models.
+
+\section{Conclusion}
+This paper described CitrusCare, a bilingual prototype that routes citrus leaf and sweet-orange fruit photographs to separate pretrained classifiers and presents their predictions alongside scope information and educational guidance. The system emphasizes that classifier output is exploratory and is not a confirmed diagnosis. Its contextual presentation should not be confused with image-grounded feature attribution. The next steps are independent evaluation on appropriately separated, field-representative images, score calibration, usability testing in both supported languages, and exploration of validated image-grounded explanation methods.
+
+\begin{thebibliography}{00}
+
+\bibitem{rauf2019}
+H. T. Rauf \emph{et al.}, ``A Citrus Fruits and Leaves Dataset for Detection and Classification of Citrus Diseases through Machine Learning,'' \emph{Data in Brief}, vol. 26, Art. no. 104340, 2019, doi: 10.17632/3f83gxmv57.2.
+
+\bibitem{ixrmodel}
+IXR (agritechixr), ``citrus-disease-convnext,'' Hugging Face. [Online]. Available: \url{https://huggingface.co/ixrbhii/citrus-disease-convnext}. [Accessed: Nov. 1, 2026].
+
+\bibitem{dima806model}
+dima806, ``orange\_fruit\_disease\_detection,'' Hugging Face. [Online]. Available: \url{https://huggingface.co/dima806/orange_fruit_disease_detection}. [Accessed: Nov. 1, 2026].
+
+\end{thebibliography}
+
+\end{document}

@@ -1,0 +1,2 @@
+[tool.vercel]
+entrypoint = "diagnosis_api:app"

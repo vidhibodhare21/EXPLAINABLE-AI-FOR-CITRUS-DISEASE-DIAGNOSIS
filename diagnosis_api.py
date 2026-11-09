@@ -1,6 +1,7 @@
 import io
 import os
 from typing import Dict, List
+from urllib.parse import urlsplit
 
 import numpy as np
 import timm
@@ -27,6 +28,18 @@ frontend_origins = [
     "http://localhost:5501",
     "http://127.0.0.1:5501",
 ]
+for environment_variable in ("VERCEL_URL", "VERCEL_PROJECT_PRODUCTION_URL"):
+    host = os.getenv(environment_variable, "").strip()
+    if host:
+        frontend_origins.append(
+            host if urlsplit(host).scheme else f"https://{host}"
+        )
+frontend_origins.extend(
+    origin.strip().rstrip("/")
+    for origin in os.getenv("CORS_ORIGINS", "").split(",")
+    if origin.strip()
+)
+frontend_origins = list(dict.fromkeys(frontend_origins))
 app.add_middleware(
     CORSMiddleware,
     allow_origins=frontend_origins,

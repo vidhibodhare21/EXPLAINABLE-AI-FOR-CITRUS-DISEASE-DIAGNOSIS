@@ -27,6 +27,18 @@ A bilingual English/Hindi student project for image-based citrus health explorat
 
 The browser sends the selected image only to the API on this computer. The API accepts JPEG, PNG, and WEBP images up to 10 MB. API/model startup and inference errors are reported in the page.
 
+## Vercel and production deployment
+
+`pyproject.toml` identifies the FastAPI application as `diagnosis_api:app`. The browser uses the same origin as the website for production API requests, so this works when the frontend and API are deployed together. For local development, it uses `http://127.0.0.1:8000`, matching the Uvicorn command above.
+
+If the frontend and API are deployed to separate origins, set `window.CITRUSCARE_API_URL` to the public API origin in a small runtime configuration script that loads before `app.js`. Also set the backend's `CORS_ORIGINS` environment variable to a comma-separated list of the exact frontend origins, for example `https://citruscare.example,https://citruscare-git-main.example`. Do not include paths or a trailing slash in those origins. The API also allows Vercel's `VERCEL_URL` and `VERCEL_PROJECT_PRODUCTION_URL` origins when those variables are available.
+
+This is a plain static HTML/JavaScript frontend; Vercel does not automatically make arbitrary environment variables available to browser JavaScript. If the frontend and API are separate, the frontend deployment must expose `CITRUSCARE_API_URL` through its build/runtime configuration as `window.CITRUSCARE_API_URL`. Never put private credentials in that public setting.
+
+The Vercel entrypoint setting fixes discovery only; it does not make these models a good fit for Vercel Functions. The API loads two public Hugging Face models on startup (about 450 MB of model files according to the local setup above), in addition to PyTorch, timm, and Transformers. Each serverless instance can download/cache models independently; cold starts, function bundle limits, memory, and request time limits can prevent reliable deployment or inference. Vercel's ephemeral filesystem is not a persistent model cache. For the complete AI backend, use a persistent Python service (for example Render, Railway, or a suitably sized Fly.io machine) with enough RAM and disk for both models, then point the Vercel frontend at that service. Test the actual selected host's current limits before choosing it.
+
+The current source does **not** implement Grad-CAM or any pixel-level explanation. Its “visible clues” are educational text, not explanations generated from the uploaded image. The models are PyTorch/timm and Transformers models; TensorFlow/Keras and OpenCV are not used or required by this project. The fruit classifier is a Vision Transformer, so adding a valid image-grounded explanation would require separate, model-appropriate implementation and testing.
+
 ## What the model does—and does not do
 
 - **Leaf model:** [`ixrbhii/citrus-disease-convnext`](https://huggingface.co/ixrbhii/citrus-disease-convnext), a ConvNeXt-Small classifier under **CC-BY-4.0**. Its eight classes are Bacterial Blight, Black Spot, Canker, Dry Leaf, Healthy, Leaf Curl Virus, Sooty Mould, and Spider Mites. Credit **“Multi-crop disease models, IXR (agritechixr)”** and retain training-data attribution when redistributing.

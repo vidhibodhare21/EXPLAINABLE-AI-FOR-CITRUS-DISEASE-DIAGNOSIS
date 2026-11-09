@@ -369,7 +369,14 @@ let currentPrediction = null;
 let currentReferenceDisease = null;
 let diagnosisRequest = 0;
 
-const API_BASE_URL = "http://127.0.0.1:8001";
+const localApiBaseUrl = "http://127.0.0.1:8000";
+const configuredApiBaseUrl = typeof window.CITRUSCARE_API_URL === "string"
+  ? window.CITRUSCARE_API_URL.trim()
+  : "";
+const API_BASE_URL = (configuredApiBaseUrl
+  || (["localhost", "127.0.0.1"].includes(window.location.hostname)
+    ? localApiBaseUrl
+    : window.location.origin)).replace(/\/+$/, "");
 const modelDiseaseIds = {
   "Bacterial Blight": "bacterialblight",
   "Black Spot": "blackspot",
