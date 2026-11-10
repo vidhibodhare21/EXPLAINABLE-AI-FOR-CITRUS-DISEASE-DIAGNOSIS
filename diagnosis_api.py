@@ -1,5 +1,4 @@
 import gc
-import io
 import logging
 import os
 import threading
@@ -107,64 +106,77 @@ def _load_model(photo_type: str) -> Any:
 def _predict_image(image: Any, photo_type: str, fruit_species: str) -> Dict[str, object]:
     global fruit_processor
 
-    with model_lock:
-        selected_model = _load_model(photo_type)
-        if torch_module is None:
-            raise HTTPException(status_code=503, detail="The AI runtime is not ready.")
+    source_image = image
+    try:
+        with model_lock:
+            selected_model = _load_model(photo_type)
+            if torch_module is None:
+                raise HTTPException(status_code=503, detail="The AI runtime is not ready.")
 
-        torch = torch_module
-        if photo_type == "leaf":
-            import numpy as np
-            from PIL import Image, ImageOps
+            torch = torch_module
+            if photo_type == "leaf":
+                import numpy as np
+                from PIL import Image, ImageOps
 
-            image = ImageOps.fit(
-                image,
-                (IMAGE_SIZE, IMAGE_SIZE),
-                method=Image.Resampling.BILINEAR,
-                centering=(0.5, 0.5),
-            )
-            pixels = torch.from_numpy(np.asarray(image, dtype=np.float32))
-            tensor = pixels.permute(2, 0, 1).unsqueeze(0) / 255.0
-            mean = torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1)
-            std = torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1)
-            tensor = (tensor - mean) / std
-            del pixels, mean, std
-            with torch.inference_mode():
-                logits = selected_model(tensor)
-            del tensor
-            labels = selected_model.pretrained_cfg["label_names"]
-        else:
-            if fruit_processor is None:
-                raise HTTPException(
-                    status_code=503,
-                    detail="The fruit image processor is not ready.",
+                resized_image = ImageOps.fit(
+                    source_image,
+                    (IMAGE_SIZE, IMAGE_SIZE),
+                    method=Image.Resampling.BILINEAR,
+                    centering=(0.5, 0.5),
                 )
-            tensor = fruit_processor(images=image, return_tensors="pt")
-            with torch.inference_mode():
-                logits = selected_model(**tensor).logits
-            del tensor
-            labels = [
-                selected_model.config.id2label[index]
-                for index in range(selected_model.config.num_labels)
-            ]
+                try:
+                    pixels = torch.from_numpy(np.asarray(resized_image, dtype=np.float32))
+                finally:
+                    resized_image.close()
+                source_image.close()
+                source_image = None
 
-        scores = torch.softmax(logits, dim=1)[0]
-        del logits
-        top_scores, top_indices = torch.topk(scores, k=min(3, scores.numel()))
-        predictions: List[Dict[str, object]] = [
-            {
-                "label": labels[index],
-                "confidence": round(float(score), 4),
+                tensor = pixels.permute(2, 0, 1).unsqueeze(0) / 255.0
+                mean = torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1)
+                std = torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1)
+                tensor = (tensor - mean) / std
+                del pixels, mean, std
+                with torch.inference_mode():
+                    logits = selected_model(tensor)
+                del tensor
+                labels = selected_model.pretrained_cfg["label_names"]
+            else:
+                if fruit_processor is None:
+                    raise HTTPException(
+                        status_code=503,
+                        detail="The fruit image processor is not ready.",
+                    )
+                tensor = fruit_processor(images=source_image, return_tensors="pt")
+                source_image.close()
+                source_image = None
+                with torch.inference_mode():
+                    logits = selected_model(**tensor).logits
+                del tensor
+                labels = [
+                    selected_model.config.id2label[index]
+                    for index in range(selected_model.config.num_labels)
+                ]
+
+            scores = torch.softmax(logits, dim=1)[0]
+            del logits
+            top_scores, top_indices = torch.topk(scores, k=min(3, scores.numel()))
+            predictions: List[Dict[str, object]] = [
+                {
+                    "label": labels[index],
+                    "confidence": round(float(score), 4),
+                }
+                for score, index in zip(top_scores.tolist(), top_indices.tolist())
+            ]
+            return {
+                "predictions": predictions,
+                "uncertain": predictions[0]["confidence"] < 0.45,
+                "model_id": LEAF_MODEL_ID if photo_type == "leaf" else FRUIT_MODEL_ID,
+                "photo_scope": photo_type,
+                "fruit_species": fruit_species if photo_type == "fruit" else None,
             }
-            for score, index in zip(top_scores.tolist(), top_indices.tolist())
-        ]
-        return {
-            "predictions": predictions,
-            "uncertain": predictions[0]["confidence"] < 0.45,
-            "model_id": LEAF_MODEL_ID if photo_type == "leaf" else FRUIT_MODEL_ID,
-            "photo_scope": photo_type,
-            "fruit_species": fruit_species if photo_type == "fruit" else None,
-        }
+    finally:
+        if source_image is not None:
+            source_image.close()
 
 
 @app.get("/api/health")
@@ -220,29 +232,37 @@ async def predict(
                 "No diagnosis was made for other citrus fruit."
             ),
         )
-    if file.content_type not in {"image/jpeg", "image/png", "image/webp"}:
-        raise HTTPException(
-            status_code=415,
-            detail="Choose a JPEG, PNG, or WEBP image.",
-        )
-
     from PIL import Image, ImageOps, UnidentifiedImageError
 
     image = None
     try:
-        image_bytes = await file.read(MAX_IMAGE_BYTES + 1)
-        if len(image_bytes) > MAX_IMAGE_BYTES:
+        if file.content_type not in {"image/jpeg", "image/png", "image/webp"}:
+            raise HTTPException(
+                status_code=415,
+                detail="Choose a JPEG, PNG, or WEBP image.",
+            )
+
+        file.file.seek(0, os.SEEK_END)
+        image_size = file.file.tell()
+        file.file.seek(0)
+        if image_size > MAX_IMAGE_BYTES:
             raise HTTPException(status_code=413, detail="Image must be 10 MB or smaller.")
         try:
-            with Image.open(io.BytesIO(image_bytes)) as uploaded_image:
-                image = ImageOps.exif_transpose(uploaded_image).convert("RGB")
-            del image_bytes
+            with Image.open(file.file) as uploaded_image:
+                oriented_image = ImageOps.exif_transpose(uploaded_image)
+                try:
+                    image = oriented_image.convert("RGB")
+                finally:
+                    if oriented_image is not uploaded_image:
+                        oriented_image.close()
         except (UnidentifiedImageError, OSError) as exc:
             raise HTTPException(
                 status_code=400, detail="The uploaded image could not be read."
             ) from exc
 
-        return _predict_image(image, photo_type, fruit_species)
+        prediction_image = image
+        image = None
+        return _predict_image(prediction_image, photo_type, fruit_species)
     finally:
         if image is not None:
             image.close()
